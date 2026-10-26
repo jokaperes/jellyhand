@@ -65,7 +65,7 @@ esac
 # 2) Tell Jellyfin to rescan so the new media + sidecar show up
 if [ -n "$JELLYFIN_KEY" ]; then
   if /usr/bin/curl -sf -X POST \
-    "${JELLYFIN_URL}/Library/Refresh?api_key=${JELLYFIN_KEY}" >/dev/null 2>&1; then
+    "${JELLYFIN_URL}/Library/Refresh?ApiKey=${JELLYFIN_KEY}" >/dev/null 2>&1; then
     :
   else
     plog "ERROR Jellyfin library refresh failed"
