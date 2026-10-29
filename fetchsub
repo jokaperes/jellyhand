@@ -495,7 +495,10 @@ def try_subdl(key, video, imdb=None):
         ep_ok = 1
         if info["season"]:
             ep = s.get("episode")
-            ep_ok = 1 if (ep in (None, info["episode"])) else 0
+            # Exact episode match first; season pack (episode None) only as
+            # fallback; wrong episode never. (A pack once overwrote all of
+            # Silo S02 with the same wrong file.)
+            ep_ok = 2 if ep == info["episode"] else (1 if ep is None else 0)
         return (ep_ok,
                 _subdl_lang_tier(lang),
                 1 if (vsrc and source_of(s.get("release_name", "")) == vsrc) else 0)
