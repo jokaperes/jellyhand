@@ -2,7 +2,7 @@
 
 *Automação de Jellyfin sem esforço.*
 
-Três scripts leves que automatizam um fluxo de Jellyfin self-hosted:
+Quatro scripts leves que automatizam um fluxo de Jellyfin self-hosted:
 **baixar um torrent → buscar a melhor legenda no seu idioma → mandar o
 Jellyfin reescanear → receber uma notificação no celular.** Feito para um
 servidor Linux headless (originalmente um Raspberry Pi 5), mas funciona em
@@ -19,7 +19,8 @@ uma linha de config — veja [Escolhendo o idioma da legenda](#escolhendo-o-idio
 |------------|-----------|--------|
 | `grab`     | bash      | Adiciona um magnet/torrent no qBittorrent na categoria certa (`anime`/`movies`/`shows`). |
 | `postdl`   | bash      | Hook de "executar ao concluir" do qBittorrent. Chama o `fetchsub`, manda o Jellyfin reescanear e envia um push via ntfy. |
-| `fetchsub` | python3   | Baixa a melhor legenda (no idioma que você escolher) de um arquivo/pasta, salva como `<video>.<iso>.srt`. Funciona sozinho. |
+| `fetchsub` | python3   | Baixa a melhor legenda, limpa e cria um sidecar estilizado `<video>.<iso>.ass`. Funciona sozinho. |
+| `restyle-srt-to-onepace-ass` | python3 | Converte SRT para o padrão ASS 1080p da biblioteca, validando que nenhuma fala seja perdida. |
 
 Cada um é independente — dá pra usar o `fetchsub` sozinho, sem a parte de torrent.
 
@@ -45,7 +46,7 @@ chmod 600 ~/.config/opensubtitles/api_key ~/.config/subdl/api_key
 
 ### 3. Instalar os scripts
 ```bash
-sudo install -m 755 fetchsub postdl grab /usr/local/bin/
+sudo install -m 755 fetchsub postdl grab restyle-srt-to-onepace-ass /usr/local/bin/
 ```
 
 ### 4. Integrar com o qBittorrent
@@ -76,7 +77,7 @@ SUB_LANG=pt-br fetchsub "/path/Filme.mkv"   # só nessa execução
 ```
 …ou fixe no `~/.config/mediaserver/config.env` (o `postdl` repassa pro `fetchsub`):
 ```bash
-SUB_LANG="pt-br"       # português do Brasil; sidecar vira .por.srt
+SUB_LANG="pt-br"       # português do Brasil; sidecar vira .por.ass
 SUB_LANG_FALLBACK="0"  # 1 = aceita a variante ampla quando a exata falta
 ```
 
@@ -90,9 +91,10 @@ preferir a variante ampla a ficar sem legenda.
 
 ## Como o `fetchsub` escolhe a legenda
 
-Salva como **`<video>.<iso>.srt`** (ex.: `.por.srt` p/ português, `.eng.srt`
-p/ inglês) pro Jellyfin selecionar o idioma automaticamente — **não** use
-`.pt-br.srt` (o Jellyfin não reconhece).
+Salva a legenda ativa como **`<video>.<iso>.ass`** (ex.: `.por.ass` para
+português, `.eng.ass` para inglês) para o Jellyfin selecionar o idioma
+automaticamente. O SRT limpo fica arquivado como
+`<video>.<iso>.srt.original-before-onepace-style`, permitindo reversão.
 
 Ordem dos provedores, parando no primeiro acerto confiável:
 
@@ -105,6 +107,12 @@ Ordem dos provedores, parando no primeiro acerto confiável:
 2. **SubDL** — só se `~/.config/subdl/api_key` existir.
    ⚠️ **Códigos de idioma do SubDL são fora do padrão:** pt-BR é `BR_PT`
    (não `PT-BR`/`PB`/`BR`), Portugal é `PT`.
+
+Depois da remoção de anúncios, o `fetchsub` aplica automaticamente o padrão
+ASS: Impress BT Pace 82, texto branco, contorno/sombra preta 3,8, centralizado
+embaixo em resolução-base 1920×1080. A conversão valida a preservação das
+falas; se falhar, o SRT limpo continua ativo para o vídeo não ficar sem
+legenda.
 
 ## Observações
 

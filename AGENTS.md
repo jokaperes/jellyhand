@@ -19,10 +19,12 @@ repo root. Deploy them to `/usr/local/bin/`.
    are gitignored. Do not hardcode keys, real IPs, hostnames, ntfy topics, or
    absolute home paths into tracked files. Before any commit, grep the diff for
    leaks (keys, `192.168.*`, tailnet `100.*` IPs, `ntfy.sh/<topic>`).
-2. **Subtitle sidecars must be named `<video>.<iso639-2>.srt`** — `.por.srt`
-   for Portuguese, `.eng.srt` for English, etc. Jellyfin reads the ISO-639-2
-   code; it ignores `.pt-br`/`.pt-BR`/`.pb`. `fetchsub` derives this from the
-   `SUB_LANG` env var (default `en` → `eng`); `postdl` mirrors the same map.
+2. **Active subtitle sidecars must be named `<video>.<iso639-2>.ass`** —
+   `.por.ass` for Portuguese, `.eng.ass` for English, etc. Jellyfin reads the
+   ISO-639-2 code; it ignores `.pt-br`/`.pt-BR`/`.pb`. `fetchsub` derives this
+   from `SUB_LANG` (default `en` → `eng`) and archives the cleaned source as
+   `.srt.original-before-onepace-style`. A cleaned `.srt` may remain active
+   only as a fail-safe when ASS conversion fails.
 3. **Do not seed / do not open inbound ports** if the host owner runs privacy-
    first (firewalled, VPN-only). Lock the qBittorrent + Jellyfin APIs to
    localhost or the private network.
@@ -32,12 +34,13 @@ repo root. Deploy them to `/usr/local/bin/`.
 
 ## Prerequisites on the target host
 
-- Python 3 (stdlib only — no pip packages needed), `curl`, `bash`.
+- Python 3 (stdlib only — no pip packages needed), `curl`, `bash`, `ffmpeg`.
+- The `Impress BT Pace` font installed for the standard ASS house style.
 - qBittorrent (`qbittorrent-nox` is fine) with the Web UI API reachable.
 - Jellyfin, with an API key (Dashboard → API Keys).
 - An ntfy topic (https://ntfy.sh — pick an unguessable topic name).
-- Optional but recommended for subtitle QA: `ffmpeg`/`ffprobe` (e.g.
-  `jellyfin-ffmpeg` at `/usr/lib/jellyfin-ffmpeg/`) to extract embedded subs.
+- `ffprobe` is recommended for subtitle QA (e.g. `jellyfin-ffmpeg` at
+  `/usr/lib/jellyfin-ffmpeg/` can also extract embedded subs).
 
 ## Step-by-step
 
@@ -48,10 +51,12 @@ repo root. Deploy them to `/usr/local/bin/`.
    to use the per-user defaults.
 3. **Keys.** Write `~/.config/opensubtitles/api_key` (required) and optionally
    `~/.config/subdl/api_key`; `chmod 600` both.
-4. **Deploy.** `sudo install -m 755 fetchsub postdl grab /usr/local/bin/`.
+4. **Deploy.** `sudo install -m 755 fetchsub postdl grab
+   restyle-srt-to-onepace-ass /usr/local/bin/`.
 5. **Smoke-test `fetchsub` standalone** on one existing video before wiring the
    hook: `fetchsub "/path/to/one episode.mkv"` and read
-   `~/.config/opensubtitles/fetchsub.log`. Confirm a `.por.srt` appears.
+   `~/.config/opensubtitles/fetchsub.log`. Confirm a `.por.ass` appears and
+   the source is archived as `.por.srt.original-before-onepace-style`.
 6. **Wire qBittorrent:** set the completion program to
    `/usr/local/bin/postdl "%F" "%L" "%N" "%D"`. Categories must be one of
    `anime`/`movies`/`shows` for subtitle fetching to trigger.
@@ -78,8 +83,11 @@ repo root. Deploy them to `/usr/local/bin/`.
   on a WEB-DL video.
 - **SubDL language codes are non-standard:** Brazilian Portuguese is `BR_PT`
   (not `PT-BR`/`PB`/`BR`); Portugal is `PT`.
-- `strip_ads` removes provider ad blocks, strips a leading BOM, renumbers cues.
-  Keep that on every downloaded sub.
+- `strip_ads` removes provider ad blocks, strips a leading BOM, and renumbers
+  cues. Keep that on every downloaded sub.
+- `style_srt` must remain fail-safe: validate cue preservation, create the
+  standard ASS, archive the source SRT, and leave the cleaned SRT active if
+  conversion fails.
 
 ## Validating a subtitle (the reliable method)
 
@@ -104,7 +112,7 @@ timestamps in ~5s buckets, trying small offsets:
   a UFW `INPUT/FORWARD DROP` policy blocks container→host traffic; allow the
   bridge subnet explicitly.
 - **Sub appears but Jellyfin won't show Portuguese** → wrong language code in
-  the filename; it must be `.por.srt`.
+  the filename; the active styled sidecar must be `.por.ass`.
 
 ## When done
 
