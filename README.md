@@ -3,7 +3,7 @@
 *Hands-off Jellyfin automation.*
 
 
-Three small, dependency-light scripts that automate a self-hosted Jellyfin
+Four small, dependency-light scripts that automate a self-hosted Jellyfin
 pipeline: **grab a torrent → fetch the best subtitle in your language →
 rescan Jellyfin → get a phone notification.** Built for a headless Linux box
 (originally a Raspberry Pi 5) but portable to any machine with Python 3,
@@ -21,7 +21,8 @@ pick yours with one config line (see
 |------------|----------|------|
 | `grab`     | bash     | Queue a magnet/torrent into qBittorrent under the right category (`anime`/`movies`/`shows`). |
 | `postdl`   | bash     | qBittorrent "run on completion" hook. Calls `fetchsub`, triggers a Jellyfin rescan, sends an ntfy push. |
-| `fetchsub` | python3  | Download the best subtitle (your chosen language) for a file/folder, saved as a `<video>.<iso>.srt` sidecar. Standalone-usable. |
+| `fetchsub` | python3  | Download the best subtitle (your chosen language), clean it, and create a styled `<video>.<iso>.ass` sidecar. Standalone-usable. |
+| `restyle-srt-to-onepace-ass` | python3 | Convert a source SRT to the library's 1080p ASS house style with cue-loss validation. |
 
 Each is independent — you can use `fetchsub` on its own without the torrent
 parts. They share one optional config file and one optional project log.
@@ -34,7 +35,7 @@ parts. They share one optional config file and one optional project log.
                                           ┌───────────────────────┼───────────────────────┐
                                           ▼                       ▼                       ▼
                                       fetchsub              Jellyfin rescan           ntfy push
-                                 (writes .<iso>.srt)      (Library/Refresh)        (📺 to your phone)
+                              (writes styled .<iso>.ass)  (Library/Refresh)        (📺 to your phone)
 ```
 
 ## Install
@@ -59,7 +60,7 @@ chmod 600 ~/.config/opensubtitles/api_key ~/.config/subdl/api_key
 
 ### 3. Deploy the scripts
 ```bash
-sudo install -m 755 fetchsub postdl grab /usr/local/bin/
+sudo install -m 755 fetchsub postdl grab restyle-srt-to-onepace-ass /usr/local/bin/
 ```
 
 ### 4. Wire qBittorrent
@@ -93,7 +94,7 @@ SUB_LANG=es fetchsub "/path/Movie.mkv"      # Spanish, just this run
 …or permanently in `~/.config/mediaserver/config.env` (`postdl` exports it to
 `fetchsub`, so the whole pipeline follows):
 ```bash
-SUB_LANG="fr"          # French; sidecars become .fre.srt
+SUB_LANG="fr"          # French; sidecars become .fre.ass
 SUB_LANG_FALLBACK="0"  # 1 = also accept the broader variant when exact is missing
 ```
 
@@ -110,9 +111,10 @@ than nothing.
 
 ## How `fetchsub` chooses a subtitle
 
-It saves the sidecar as **`<video>.<iso>.srt`** (e.g. `.eng.srt` for English,
-`.spa.srt` for Spanish, `.por.srt` for Portuguese) so Jellyfin auto-selects the
-language — *not* `.en.srt` / `.pt-br.srt`, which Jellyfin won't recognise.
+It saves the active sidecar as **`<video>.<iso>.ass`** (e.g. `.eng.ass` for
+English, `.spa.ass` for Spanish, `.por.ass` for Portuguese) so Jellyfin
+auto-selects the language. The cleaned source is archived as
+`<video>.<iso>.srt.original-before-onepace-style` for reversibility.
 
 Provider order, stopping at the first confident match:
 
@@ -135,7 +137,11 @@ Provider order, stopping at the first confident match:
    `BR_PT` (not `PT-BR`/`PB`/`BR`, which error out); Portugal is `PT`.
 
 Downloaded subs are run through `strip_ads` (removes provider ad blocks,
-strips a leading BOM, and renumbers cues).
+strips a leading BOM, and renumbers cues), then converted to the standard ASS
+style: Impress BT Pace 82, white text, black 3.8 outline/shadow, bottom-centred
+at a 1920×1080 script resolution. Conversion validates visible cue preservation.
+If styling fails, `fetchsub` deliberately keeps the cleaned SRT active instead
+of leaving the video unsubtitled.
 
 ## Notes & gotchas
 

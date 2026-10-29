@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """fetchsub — download the best subtitle for video file(s), saved as a
-`<video>.<lang>.srt` sidecar so Jellyfin auto-selects it.
+standard-styled `<video>.<lang>.ass` sidecar so Jellyfin auto-selects it.
+The cleaned source SRT is retained as
+`<video>.<lang>.srt.original-before-onepace-style` for reversibility.
 
 Default language is English (en), saved as `.eng.srt`. Change it with the
 SUB_LANG env var (see the LANG_TABLE below): e.g. SUB_LANG=es, SUB_LANG=fr,
@@ -22,7 +24,7 @@ Usage:
                                         # IMDb id for TV, or the movie's id
   SUB_LANG=en fetchsub <video-file>     # fetch a different language
 """
-import os, sys, re, json, struct, time, io, zipfile
+import os, sys, re, json, struct, time, io, zipfile, subprocess
 import urllib.request, urllib.parse, urllib.error
 
 OS_API = "https://api.opensubtitles.com/api/v1"
@@ -36,6 +38,8 @@ LOG_FILE = os.environ.get(
 PROJECT_LOG = os.environ.get(
     "PROJECT_LOG", os.path.expanduser("~/.config/mediaserver/mediaserver.log"))
 VIDEO_EXT = {".mkv", ".mp4", ".avi", ".m4v", ".mov", ".webm", ".ts"}
+STYLE_CONVERTER = os.environ.get(
+    "SUB_STYLE_CONVERTER", "/usr/local/bin/restyle-srt-to-onepace-ass")
 
 # ---- subtitle language configuration ----------------------------------------
 # Pick the subtitle language with the SUB_LANG env var (default en). Each
@@ -211,12 +215,60 @@ def strip_ads(raw):
     return ("\n\n".join(out) + "\n").encode("utf-8")
 
 
+def style_srt(srt_path):
+    """Create the standard ASS sidecar and archive the source SRT.
+
+    Conversion is deliberately fail-safe: if the converter is unavailable or
+    rejects malformed input, the SRT remains active so a movie is never left
+    without subtitles merely because styling failed.
+    """
+    ass_path = os.path.splitext(srt_path)[0] + ".ass"
+    backup_path = srt_path + ".original-before-onepace-style"
+    if not (os.path.isfile(STYLE_CONVERTER) and os.access(STYLE_CONVERTER, os.X_OK)):
+        log(f"  style warning: converter unavailable: {STYLE_CONVERTER}")
+        plog(f"STYLE-WARN converter unavailable; kept {os.path.basename(srt_path)}")
+        return srt_path
+    try:
+        completed = subprocess.run(
+            [STYLE_CONVERTER, srt_path, ass_path, "--force"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if completed.stdout.strip():
+            log(f"  styled: {completed.stdout.strip()}")
+        os.chmod(ass_path, 0o664)
+        if os.path.exists(backup_path):
+            with open(srt_path, "rb") as current, open(backup_path, "rb") as prior:
+                same_source = current.read() == prior.read()
+            if same_source:
+                os.unlink(srt_path)
+            else:
+                versioned = backup_path + "." + time.strftime("%Y%m%d-%H%M%S")
+                os.replace(srt_path, versioned)
+                os.chmod(versioned, 0o664)
+                log(f"  preserved changed SRT source -> {versioned}")
+        else:
+            os.replace(srt_path, backup_path)
+            os.chmod(backup_path, 0o664)
+        return ass_path
+    except Exception as exc:
+        try:
+            if os.path.exists(ass_path):
+                os.unlink(ass_path)
+        except OSError:
+            pass
+        log(f"  style warning: {exc}; kept SRT active")
+        plog(f"STYLE-WARN {os.path.basename(srt_path)}: {exc}")
+        return srt_path
+
+
 def save_sub(video, raw):
     out = os.path.splitext(video)[0] + f".{SIDECAR_ISO}.srt"
     with open(out, "wb") as f:
         f.write(strip_ads(raw))
     os.chmod(out, 0o664)
-    return out
+    return style_srt(out)
 
 
 # ---------- OpenSubtitles ----------
